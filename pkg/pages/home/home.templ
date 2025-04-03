@@ -1,0 +1,20 @@
+package home
+
+import "github.com/sandrospengler/streamserver/pkg/views/layout"
+
+templ Home() {
+	@layout.Base() {
+		<div>
+			<section>
+				<div id="loadingPlaceholder">
+					<h1>StreamServer</h1>
+					<div id="loadingText">
+						<p>Loading WebRTC PeerConnection...</p>
+						<p>Initialize VideoTrack...</p>
+					</div>
+				</div>
+				<div id="rtmpFeed"></div>
+			</section>
+		</div>
+	}
+}

@@ -1,12 +1,18 @@
 package main
 
 import (
+	log "github.com/sirupsen/logrus"
+
+	"github.com/sandrospengler/streamserver/pkg/http"
 	"github.com/sandrospengler/streamserver/pkg/rtmp"
-	"log"
 )
 
 func main() {
-	log.Println("starting server")
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetReportCaller(true)
+	log.Info("Starting StreamServer")
 
-	rtmp.StartRTMPServer()
+	go rtmp.StartRTMPServer()
+
+	http.StartHTTPServer()
 }
