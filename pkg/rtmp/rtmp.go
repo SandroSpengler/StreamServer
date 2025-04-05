@@ -31,7 +31,7 @@ type RTMPHandler struct {
 }
 
 func StartRTMPServer() {
-	port := ":1935"
+	port := ":1936"
 	log.Info("RTMP-Server starting on port " + port)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", port)
@@ -78,7 +78,9 @@ func newOpusEncoder() *opus.Encoder {
 }
 
 func (h *RTMPHandler) OnAudio(timestamp uint32, payload io.Reader) error {
-	start := time.Now()
+	if AUDIO_TRACK == nil {
+		return nil
+	}
 
 	var audio flvtag.AudioData
 	if err := flvtag.DecodeAudioData(payload, &audio); err != nil {
@@ -91,7 +93,6 @@ func (h *RTMPHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 	}
 
 	if data.Len() <= 0 {
-		log.Println("no audio data", timestamp, payload)
 		return nil
 	}
 
@@ -104,12 +105,14 @@ func (h *RTMPHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 		if err := h.audioDecoder.InitRaw(datas); err != nil {
 			log.Println("error initializing stream", err)
 		}
+
 		return nil
 	}
 
 	pcm, err := h.audioDecoder.Decode(datas)
 	if err != nil {
-		log.Println("decode error: ", hex.EncodeToString(datas), err)
+		log.Error("decode error: ", hex.EncodeToString(datas), err)
+
 		return nil
 	}
 
@@ -118,24 +121,23 @@ func (h *RTMPHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 	// Resample from 1024 to 960 samples
 	resampledPCM := resample(pcmInt16, 1024, 960)
 
-	// Debugging: Log PCM length and frame size
-	frameSize := 960 * 2 // 960 samples * 2 channels
-	log.Printf("Resampled PCM length: %d, Opus frame size: %d", len(resampledPCM), frameSize)
+	frameSize := 960 * 2
 
 	// Ensure PCM length is a multiple of frameSize
 	if len(resampledPCM)%frameSize != 0 {
-		log.Printf("Warning: Trimming PCM size from %d to %d\n", len(resampledPCM), (len(resampledPCM)/frameSize)*frameSize)
 		resampledPCM = resampledPCM[:(len(resampledPCM)/frameSize)*frameSize]
 	}
 
 	encodedBytes, err := h.audioEncoder.Encode(resampledPCM, opusBuffer)
 	if err != nil {
-		log.Println("Opus encoding error:", err)
+		log.Error("Opus encoding error:", err)
+
 		return err
 	}
 
+	start := time.Now()
 	elapsed := time.Since(start).Microseconds()
-	log.Printf("FFmpeg audio conversion took %d µs", elapsed)
+	log.Printf("AUDIO took %d µs", elapsed)
 
 	return AUDIO_TRACK.WriteSample(media.Sample{
 		Data:     opusBuffer[:encodedBytes],
@@ -151,7 +153,7 @@ func resample(in []int16, inRate int, outRate int) []int16 {
 	outLen := int(float64(len(in)) * float64(outRate) / float64(inRate))
 	out := make([]int16, outLen)
 
-	for i := 0; i < outLen; i++ {
+	for i := range out {
 		inIndex := float64(i) * float64(inRate) / float64(outRate)
 		inIndexInt := int(inIndex)
 
@@ -162,6 +164,7 @@ func resample(in []int16, inRate int, outRate int) []int16 {
 			out[i] = int16(float64(in[inIndexInt])*(1.0-inFrac) + float64(in[inIndexInt+1])*inFrac)
 		}
 	}
+
 	return out
 }
 
@@ -172,9 +175,10 @@ func bytesToInt16(pcm []byte) []int16 {
 	}
 
 	int16Data := make([]int16, len(pcm)/2)
-	for i := 0; i < len(int16Data); i++ {
+	for i := range int16Data {
 		int16Data[i] = int16(pcm[2*i]) | int16(pcm[2*i+1])<<8
 	}
+
 	return int16Data
 }
 
@@ -211,7 +215,9 @@ func (h *RTMPHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		offset += int(bufferLength)
 	}
 
-	//log.Info("Video data received")
+	start := time.Now()
+	elapsed := time.Since(start).Microseconds()
+	log.Printf("VIDEO took %d µs", elapsed)
 
 	return VIDEO_TRACK.WriteSample(media.Sample{
 		Data:     outBuf,
