@@ -10,8 +10,9 @@ import (
 
 	"github.com/Glimesh/go-fdkaac/fdkaac"
 	"github.com/hraban/opus"
-	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media"
+	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
+	"github.com/sandrospengler/streamserver/pkg/broadcast"
 	log "github.com/sirupsen/logrus"
 
 	flvtag "github.com/yutopp/go-flv/tag"
@@ -20,8 +21,11 @@ import (
 	rtmpmsg "github.com/yutopp/go-rtmp/message"
 )
 
-var VIDEO_TRACK *webrtc.TrackLocalStaticSample = nil
-var AUDIO_TRACK *webrtc.TrackLocalStaticSample = nil
+var VideoBroadcaster = broadcast.NewBroadcaster()
+var AudioBroadcaster = broadcast.NewBroadcaster()
+
+var VIDEO_CODEC = webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}
+var AUDIO_CODEC = webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}
 
 type RTMPHandler struct {
 	gortmp.DefaultHandler
@@ -78,9 +82,11 @@ func newOpusEncoder() *opus.Encoder {
 }
 
 func (h *RTMPHandler) OnAudio(timestamp uint32, payload io.Reader) error {
-	if AUDIO_TRACK == nil {
+	if len(AudioBroadcaster.Tracks) == 0 {
 		return nil
 	}
+
+	start := time.Now()
 
 	var audio flvtag.AudioData
 	if err := flvtag.DecodeAudioData(payload, &audio); err != nil {
@@ -135,11 +141,10 @@ func (h *RTMPHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 		return err
 	}
 
-	start := time.Now()
 	elapsed := time.Since(start).Microseconds()
 	log.Printf("AUDIO took %d µs", elapsed)
 
-	return AUDIO_TRACK.WriteSample(media.Sample{
+	return AudioBroadcaster.WriteSample(media.Sample{
 		Data:     opusBuffer[:encodedBytes],
 		Duration: 20 * time.Millisecond,
 	})
@@ -185,10 +190,12 @@ func bytesToInt16(pcm []byte) []int16 {
 const headerLengthField = 4
 
 func (h *RTMPHandler) OnVideo(timestamp uint32, payload io.Reader) error {
-	if VIDEO_TRACK == nil {
+	if len(VideoBroadcaster.Tracks) == 0 {
 		// Because there is no WebRTC video track, we ignore the video data
 		return nil
 	}
+
+	start := time.Now()
 
 	var video flvtag.VideoData
 	if err := flvtag.DecodeVideoData(payload, &video); err != nil {
@@ -215,11 +222,10 @@ func (h *RTMPHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		offset += int(bufferLength)
 	}
 
-	start := time.Now()
 	elapsed := time.Since(start).Microseconds()
 	log.Printf("VIDEO took %d µs", elapsed)
 
-	return VIDEO_TRACK.WriteSample(media.Sample{
+	return VideoBroadcaster.WriteSample(media.Sample{
 		Data:     outBuf,
 		Duration: time.Second / 30,
 	})

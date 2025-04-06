@@ -4,67 +4,52 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/pion/webrtc/v4"
 	rtmp "github.com/sandrospengler/streamserver/pkg/rtmp"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/labstack/echo/v4"
-	"github.com/pion/webrtc/v3"
 )
 
 type PeerConnectionHandler struct{}
 
 func (h PeerConnectionHandler) HandleCreatePeerConnection(c echo.Context) error {
 
-	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{
+				URLs: []string{"stun:stun.l.google.com:19302"},
+			},
+		},
+	})
 	if err != nil {
 		log.Error("Error creating PeerConnection", err)
 		return err
 	}
 
-	if rtmp.VIDEO_TRACK == nil {
-		rtmp.VIDEO_TRACK, err = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
-			MimeType: webrtc.MimeTypeH264,
-		}, "video", "stream-0")
-		if err != nil {
-			return err
-		}
-
-		if rtmp.VIDEO_TRACK == nil {
-			log.Println("VideoTrack did not initialize")
-		}
-
-		log.WithFields(log.Fields{
-			"StreamID": rtmp.VIDEO_TRACK.ID(),
-			"Kind":     rtmp.VIDEO_TRACK.Kind(),
-			"Codec":    rtmp.VIDEO_TRACK.Codec(),
-		}).Info("Created VideoTrack")
-
-		_, err = peerConnection.AddTrack(rtmp.VIDEO_TRACK)
-		if err != nil {
-			log.Error("Error adding VideoTrack to PeerConnection", err)
-			return err
-		}
+	videoTrack, err := webrtc.NewTrackLocalStaticSample(rtmp.VIDEO_CODEC, "video", "stream-0")
+	if err != nil {
+		return err
 	}
 
-	if rtmp.AUDIO_TRACK == nil {
-		rtmp.AUDIO_TRACK, err = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
-			MimeType: webrtc.MimeTypeOpus,
-		}, "audio", "stream-0")
-		if err != nil {
-			return err
-		}
+	rtmp.VideoBroadcaster.AddTrack(videoTrack)
 
-		if rtmp.AUDIO_TRACK == nil {
-			log.Println("AudioTrack did not initialize")
-		}
+	_, err = peerConnection.AddTrack(videoTrack)
+	if err != nil {
+		log.Error("Error adding VideoTrack to PeerConnection", err)
+		return err
+	}
 
-		log.Info("Created AudioTrack")
+	audioTrack, err := webrtc.NewTrackLocalStaticSample(rtmp.AUDIO_CODEC, "audio", "stream-0")
+	if err != nil {
+		return err
+	}
+	rtmp.AudioBroadcaster.AddTrack(audioTrack)
 
-		_, err = peerConnection.AddTrack(rtmp.AUDIO_TRACK)
-		if err != nil {
-			log.Error("Error adding AudioTrack to PeerConnection", err)
-			return err
-		}
+	_, err = peerConnection.AddTrack(audioTrack)
+	if err != nil {
+		log.Error("Error adding AudioTrack to PeerConnection", err)
+		return err
 	}
 
 	var offer webrtc.SessionDescription
